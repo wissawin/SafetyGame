@@ -890,7 +890,7 @@
       <div class="reflection-title">สิ่งที่คุณได้เรียนรู้จากเกมนี้</div>
       <textarea id="reflection-input" class="reflection-input" rows="3" placeholder="พิมพ์สิ่งที่คุณได้เรียนรู้ หรือข้อคิดจากบทเรียนนี้..."></textarea>
       <div class="reflection-actions">
-        <button class="btn" id="btn-save-reflection">บันทึกเป็นไฟล์</button>
+        <button class="btn primary" id="btn-save-reflection">บันทึกผลลัพธ์</button>
         <span class="reflection-status" id="reflection-status"></span>
       </div>
     </div>
@@ -1861,7 +1861,7 @@ function endGame(success, reason){
     setSpriteState(el.endSpriteWrap, 'cheer', 'green');
     el.endSpriteWrap.classList.add('sprite-wrap-lg');
     el.endSpriteBadge.classList.remove('show');
-    el.endTitle.textContent = "ฝึกซ้อมสำเร็จ";
+    el.endTitle.textContent = "Stage Cleared";
     el.endTitle.className = "end-title success";
     el.endSub.textContent = `คุณออกมาได้สำเร็จ โดยพลาด ${state.mistakes} ครั้ง และเหลือเวลา ${el.hudTimer.textContent} บนนาฬิกา`;
     let grade = "ทองแดง";
@@ -1975,7 +1975,7 @@ el.btnSaveReflection.addEventListener('click', ()=>{
     type: 'reflection', email: currentUser.email, name: currentUser.name,
     scenario: s.name, text: text
   });
-  showReflectionStatus('บันทึกไฟล์เรียบร้อยแล้ว ✓', true);
+  showReflectionStatus('บันทึกผลลัพธ์เรียบร้อยแล้ว ✓', true);
 });
 </script>
 
