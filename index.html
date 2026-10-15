@@ -1508,7 +1508,7 @@ buildScenarioList();
    Until a real URL is pasted in, logging is silently skipped and
    the game plays normally — nothing breaks.
    ======================================================== */
-const SHEET_WEBAPP_URL = 'PASTE_YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE';
+const SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbyo39RR-pj-QWUThsTuESDwrQLJ6Z5-ySbnNzT4sdMSGJ2Rlq_GFiI2LSVisZNQtPGYQQ/exec';
 
 function logToSheet(payload){
   if(!SHEET_WEBAPP_URL || SHEET_WEBAPP_URL.indexOf('PASTE_YOUR') === 0) return;
