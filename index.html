@@ -1510,14 +1510,22 @@ buildScenarioList();
    ======================================================== */
 const SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbyo39RR-pj-QWUThsTuESDwrQLJ6Z5-ySbnNzT4sdMSGJ2Rlq_GFiI2LSVisZNQtPGYQQ/exec';
 
-function logToSheet(payload){
+function logToSheet(payload, isUnload){
   if(!SHEET_WEBAPP_URL || SHEET_WEBAPP_URL.indexOf('PASTE_YOUR') === 0) return;
+  const data = JSON.stringify(Object.assign({ timestamp: new Date().toISOString() }, payload));
+  if(isUnload && typeof navigator !== 'undefined' && navigator.sendBeacon){
+    try{
+      const blob = new Blob([data], { type: 'text/plain;charset=utf-8' });
+      if(navigator.sendBeacon(SHEET_WEBAPP_URL, blob)) return;
+    }catch(e){}
+  }
   try{
     fetch(SHEET_WEBAPP_URL, {
       method: 'POST',
       mode: 'no-cors', // Apps Script web apps don't return CORS headers; fire-and-forget avoids a blocked response read
       headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // text/plain avoids a CORS preflight request
-      body: JSON.stringify(Object.assign({ timestamp: new Date().toISOString() }, payload))
+      body: data,
+      keepalive: true
     }).catch(()=>{ /* network hiccups shouldn't interrupt the training session */ });
   }catch(e){ /* ignore — logging must never block gameplay */ }
 }
@@ -1584,6 +1592,8 @@ el.loginEmail.addEventListener('input', ()=>{
    START / RUN SCENARIO
    ======================================================== */
 function startScenario(key){
+  clearTimeout(reflectionAutoSaveTimer);
+  lastSavedReflection = '';
   const s = SCENARIOS[key];
   state = {
     scenarioKey:key,
@@ -1593,7 +1603,9 @@ function startScenario(key){
     timerId:null,
     mistakes:0,
     wrongLog:[],
-    locked:false
+    locked:false,
+    lastResult:null,
+    lastGrade:null
   };
   el.hudName.textContent = s.name;
   buildLevelMap();
@@ -1854,6 +1866,8 @@ function showFeedback(ok, title, body){
 function endGame(success, reason){
   showScreen('end');
   const s = SCENARIOS[state.scenarioKey];
+  clearTimeout(reflectionAutoSaveTimer);
+  lastSavedReflection = '';
   el.reflectionInput.value = '';
   el.reflectionStatus.classList.remove('show');
 
@@ -1868,6 +1882,8 @@ function endGame(success, reason){
     if(state.mistakes === 0 && state.timeLeft > state.timeTotal*0.5) grade = "ทอง";
     else if(state.mistakes <= 1) grade = "เงิน";
     el.endGrade.innerHTML = `เกรด&nbsp;<b>${grade}</b>`;
+    state.lastResult = 'success';
+    state.lastGrade = grade;
     logToSheet({
       type: 'result', email: currentUser.email, name: currentUser.name,
       scenario: s.name, result: 'success', grade: grade,
@@ -1884,6 +1900,8 @@ function endGame(success, reason){
       ? "เวลาหมดก่อนที่คุณจะไปถึงจุดปลอดภัย ในสถานการณ์จริง ทุกวินาทีมีความหมาย"
       : "การตัดสินใจนั้นจะทำให้เกิดการบาดเจ็บร้ายแรงในสถานการณ์จริง ทบทวนบทเรียนด้านล่างแล้วลองใหม่อีกครั้ง";
     el.endGrade.innerHTML = `เกรด&nbsp;<b>ลองใหม่</b>`;
+    state.lastResult = reason;
+    state.lastGrade = 'RETRY';
     logToSheet({
       type: 'result', email: currentUser.email, name: currentUser.name,
       scenario: s.name, result: reason, grade: 'RETRY',
@@ -1931,51 +1949,123 @@ function endGame(success, reason){
   }
 }
 
+function showReflectionStatus(message, ok, pending){
+  el.reflectionStatus.textContent = message;
+  el.reflectionStatus.style.color = pending ? 'var(--text-dim)' : (ok ? 'var(--green)' : 'var(--red)');
+  el.reflectionStatus.classList.add('show');
+  clearTimeout(showReflectionStatus._t);
+  if(!pending){
+    showReflectionStatus._t = setTimeout(()=>{
+      el.reflectionStatus.classList.remove('show');
+    }, 2500);
+  }
+}
+
+let reflectionAutoSaveTimer = null;
+let lastSavedReflection = '';
+
+function saveReflection(options = {}){
+  clearTimeout(reflectionAutoSaveTimer);
+  const text = (el.reflectionInput.value || '').trim();
+  if(!state || !state.scenarioKey) return;
+  const s = SCENARIOS[state.scenarioKey];
+  if(!s) return;
+
+  if(!text){
+    if(options.manual){
+      showReflectionStatus('กรุณาพิมพ์ข้อคิดก่อนบันทึก', false);
+    }
+    return;
+  }
+
+  // If already saved this exact text and not a manual save, skip duplicate submission
+  if(text === lastSavedReflection && !options.manual){
+    return;
+  }
+
+  const isNewContent = (text !== lastSavedReflection);
+
+  if(isNewContent){
+    lastSavedReflection = text;
+    try {
+      localStorage.setItem('safety_game_reflection_' + state.scenarioKey, text);
+    } catch(e) {}
+
+    logToSheet({
+      type: 'reflection',
+      email: currentUser.email,
+      name: currentUser.name,
+      scenario: s.name,
+      result: state.lastResult || '',
+      grade: state.lastGrade || '',
+      mistakes: state.mistakes !== undefined ? state.mistakes : '',
+      timeLeft: state.timeLeft !== undefined ? state.timeLeft : '',
+      text: text
+    }, options.isUnload);
+  }
+
+  if(options.manual){
+    if(options.downloadFile){
+      const now = new Date();
+      const dateStr = now.toLocaleString('th-TH');
+      const content = 'บทเรียนความปลอดภัย: ' + s.name + '\n' +
+                      'ผู้เล่น: ' + (currentUser.email || 'ไม่ระบุ') + '\n' +
+                      'วันที่: ' + dateStr + '\n\n' +
+                      'สิ่งที่ได้เรียนรู้:\n' + text + '\n';
+      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'บทเรียน-' + s.name + '-' + now.getTime() + '.txt';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+    showReflectionStatus('บันทึกผลลัพธ์เรียบร้อยแล้ว ✓', true);
+  } else if(!options.isUnload){
+    showReflectionStatus('บันทึกอัตโนมัติแล้ว ✓', true);
+  }
+}
+
+function queueReflectionAutoSave(){
+  const text = (el.reflectionInput.value || '').trim();
+  if(!text || text === lastSavedReflection) return;
+  showReflectionStatus('กำลังบันทึก...', true, true);
+  clearTimeout(reflectionAutoSaveTimer);
+  reflectionAutoSaveTimer = setTimeout(()=>{
+    saveReflection();
+  }, 1200);
+}
+
+el.reflectionInput.addEventListener('input', queueReflectionAutoSave);
+el.reflectionInput.addEventListener('blur', ()=>saveReflection());
+el.reflectionInput.addEventListener('change', ()=>saveReflection());
+
+el.btnSaveReflection.addEventListener('click', ()=>{
+  saveReflection({ manual: true, downloadFile: true });
+});
+
 el.btnMenu.addEventListener('click', ()=>{
+  saveReflection();
   clearInterval(state.timerId);
   showScreen('title');
 });
 el.btnRetry.addEventListener('click', ()=>{
+  saveReflection();
   startScenario(state.scenarioKey);
 });
 
-function showReflectionStatus(message, ok){
-  el.reflectionStatus.textContent = message;
-  el.reflectionStatus.style.color = ok ? 'var(--green)' : 'var(--red)';
-  el.reflectionStatus.classList.add('show');
-  clearTimeout(showReflectionStatus._t);
-  showReflectionStatus._t = setTimeout(()=>{
-    el.reflectionStatus.classList.remove('show');
-  }, 2500);
-}
-
-el.btnSaveReflection.addEventListener('click', ()=>{
-  const text = el.reflectionInput.value.trim();
-  if(!text){
-    showReflectionStatus('กรุณาพิมพ์ข้อคิดก่อนบันทึก', false);
-    return;
+window.addEventListener('beforeunload', ()=>{
+  saveReflection({ isUnload: true });
+});
+window.addEventListener('pagehide', ()=>{
+  saveReflection({ isUnload: true });
+});
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'hidden'){
+    saveReflection({ isUnload: true });
   }
-  const s = SCENARIOS[state.scenarioKey];
-  const now = new Date();
-  const dateStr = now.toLocaleString('th-TH');
-  const content = 'บทเรียนความปลอดภัย: ' + s.name + '\n' +
-                  'ผู้เล่น: ' + (currentUser.email || 'ไม่ระบุ') + '\n' +
-                  'วันที่: ' + dateStr + '\n\n' +
-                  'สิ่งที่ได้เรียนรู้:\n' + text + '\n';
-  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'บทเรียน-' + s.name + '-' + now.getTime() + '.txt';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  logToSheet({
-    type: 'reflection', email: currentUser.email, name: currentUser.name,
-    scenario: s.name, text: text
-  });
-  showReflectionStatus('บันทึกผลลัพธ์เรียบร้อยแล้ว ✓', true);
 });
 </script>
 
