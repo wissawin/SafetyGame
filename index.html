@@ -2029,45 +2029,24 @@ function saveReflection(options = {}){
     return;
   }
 
-  const isNewContent = (text !== lastSavedReflection);
+  lastSavedReflection = text;
+  try {
+    localStorage.setItem('safety_game_reflection_' + state.scenarioKey, text);
+  } catch(e) {}
 
-  if(isNewContent){
-    lastSavedReflection = text;
-    try {
-      localStorage.setItem('safety_game_reflection_' + state.scenarioKey, text);
-    } catch(e) {}
-
-    logToSheet({
-      type: 'reflection',
-      email: currentUser.email,
-      name: currentUser.name,
-      scenario: s.name,
-      result: state.lastResult || '',
-      grade: state.lastGrade || '',
-      mistakes: state.mistakes !== undefined ? state.mistakes : '',
-      timeLeft: state.timeLeft !== undefined ? state.timeLeft : '',
-      text: text
-    }, options.isUnload);
-  }
+  logToSheet({
+    type: 'reflection',
+    email: currentUser.email || 'ไม่ระบุ',
+    name: currentUser.name || 'ไม่ระบุ',
+    scenario: s.name,
+    result: state.lastResult || '',
+    grade: state.lastGrade || '',
+    mistakes: state.mistakes !== undefined ? state.mistakes : '',
+    timeLeft: state.timeLeft !== undefined ? state.timeLeft : '',
+    text: text
+  }, options.isUnload);
 
   if(options.manual){
-    if(options.downloadFile){
-      const now = new Date();
-      const dateStr = now.toLocaleString('th-TH');
-      const content = 'บทเรียนความปลอดภัย: ' + s.name + '\n' +
-                      'ผู้เล่น: ' + (currentUser.email || 'ไม่ระบุ') + '\n' +
-                      'วันที่: ' + dateStr + '\n\n' +
-                      'สิ่งที่ได้เรียนรู้:\n' + text + '\n';
-      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'บทเรียน-' + s.name + '-' + now.getTime() + '.txt';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }
     showReflectionStatus('บันทึกผลลัพธ์เรียบร้อยแล้ว ✓', true);
   } else if(!options.isUnload){
     showReflectionStatus('บันทึกอัตโนมัติแล้ว ✓', true);
@@ -2089,7 +2068,7 @@ el.reflectionInput.addEventListener('blur', ()=>saveReflection());
 el.reflectionInput.addEventListener('change', ()=>saveReflection());
 
 el.btnSaveReflection.addEventListener('click', ()=>{
-  saveReflection({ manual: true, downloadFile: true });
+  saveReflection({ manual: true });
 });
 
 el.btnMenu.addEventListener('click', ()=>{
