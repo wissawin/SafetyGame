@@ -1409,6 +1409,7 @@ let state = {
   timerId:null,
   mistakes:0,
   wrongLog:[],
+  answers:[],
   locked:false
 };
 
@@ -1603,6 +1604,7 @@ function startScenario(key){
     timerId:null,
     mistakes:0,
     wrongLog:[],
+    answers:[],
     locked:false,
     lastResult:null,
     lastGrade:null
@@ -1808,6 +1810,44 @@ function handleChoice(choice, btnEl){
   const allBtns = el.choices.querySelectorAll('.choice-btn');
   allBtns.forEach(b=>b.setAttribute('disabled','true'));
 
+  const s = SCENARIOS[state.scenarioKey];
+  const scene = s.scenes[state.sceneIndex];
+  const answerResult = choice.correct ? 'ถูกต้อง' : (choice.critical ? 'ผิดพลาดร้ายแรง' : 'ยังไม่ถูกต้อง');
+  const mistakesNow = state.mistakes + (choice.correct ? 0 : 1);
+
+  if(!state.answers) state.answers = [];
+  state.answers.push({
+    scenario: s.name,
+    sceneIndex: state.sceneIndex + 1,
+    tag: scene.tag,
+    question: scene.text,
+    choice: choice.text,
+    result: answerResult,
+    correct: !!choice.correct,
+    critical: !!choice.critical,
+    feedback: choice.feedback,
+    mistakes: mistakesNow,
+    timeLeft: state.timeLeft,
+    timestamp: new Date().toISOString()
+  });
+
+  // Auto-save every question choice directly to Google Sheets and localStorage
+  logToSheet({
+    type: 'question',
+    email: currentUser.email,
+    name: currentUser.name,
+    scenario: s.name,
+    result: answerResult,
+    grade: scene.tag,
+    mistakes: mistakesNow,
+    timeLeft: state.timeLeft,
+    text: `ข้อ ${state.sceneIndex + 1}: ${scene.tag} | ตอบ: "${choice.text}" (${answerResult}) — ${choice.feedback}`
+  });
+
+  try {
+    localStorage.setItem('safety_game_answers_' + state.scenarioKey, JSON.stringify(state.answers));
+  } catch(e) {}
+
   if(choice.correct){
     btnEl.classList.add('correct');
     allBtns.forEach(b=>{ if(b!==btnEl) b.classList.add('dim'); });
@@ -1871,6 +1911,10 @@ function endGame(success, reason){
   el.reflectionInput.value = '';
   el.reflectionStatus.classList.remove('show');
 
+  const answersSummary = (state.answers && state.answers.length)
+    ? state.answers.map(a => `ข้อ ${a.sceneIndex} (${a.result}): ${a.choice}`).join(' | ')
+    : '';
+
   if(success){
     setSpriteState(el.endSpriteWrap, 'cheer', 'green');
     el.endSpriteWrap.classList.add('sprite-wrap-lg');
@@ -1887,7 +1931,8 @@ function endGame(success, reason){
     logToSheet({
       type: 'result', email: currentUser.email, name: currentUser.name,
       scenario: s.name, result: 'success', grade: grade,
-      mistakes: state.mistakes, timeLeft: state.timeLeft
+      mistakes: state.mistakes, timeLeft: state.timeLeft,
+      text: answersSummary
     });
   } else {
     const tint = reason === "time" ? "grey" : "red";
@@ -1905,7 +1950,8 @@ function endGame(success, reason){
     logToSheet({
       type: 'result', email: currentUser.email, name: currentUser.name,
       scenario: s.name, result: reason, grade: 'RETRY',
-      mistakes: state.mistakes, timeLeft: state.timeLeft
+      mistakes: state.mistakes, timeLeft: state.timeLeft,
+      text: answersSummary
     });
   }
 
